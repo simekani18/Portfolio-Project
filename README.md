@@ -433,7 +433,7 @@ Response:
 ## Project Structure
 
 ```
-dribbble-replica-dreamscape-clone/
+portfolio-project/
 ├── frontend/                      # React TypeScript frontend
 │   ├── src/
 │   │   ├── components/
