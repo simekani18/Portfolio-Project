@@ -21,16 +21,16 @@ This project serves as my **living CV** - a dynamic portfolio website that I can
 
 - [Project Purpose](#project-purpose)
 - [Architecture Philosophy](#architecture-philosophy)
+- [Architecture Deep Dive](#architecture-deep-dive)
+- [Frontend Migration Status](#frontend-migration-status)
+- [Authentication System](#authentication-system)
 - [Technology Stack](#technology-stack)
+- [Outstanding Features](#outstanding-features)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Docker Deployment](#docker-deployment)
-- [Frontend Migration Status](#frontend-migration-status)
-- [Authentication System](#authentication-system)
 - [API Documentation](#api-documentation)
 - [Development Workflow](#development-workflow)
-- [Outstanding Features](#outstanding-features)
-- [Architecture Deep Dive](#architecture-deep-dive)
 
 ---
 
@@ -106,6 +106,217 @@ This isn't redundancy - it's **separation of concerns at the feature level**.
 
 ---
 
+## Architecture Deep Dive
+
+### Vertical Slice Architecture Explained
+
+Each feature is a **vertical slice** through all layers of the application:
+
+```
+HTTP Request
+    ↓
+Endpoint (Login.Endpoint.cs)
+    ↓
+Validation (Login.Validator.cs)
+    ↓
+MediatR Pipeline
+    ↓
+Handler (Login.Handler.cs)
+    ├─ Database Access (EF Core)
+    ├─ Business Logic
+    └─ External Services
+    ↓
+Response (Login.Response.cs)
+    ↓
+HTTP Response
+```
+
+### Benefits in Practice
+
+**Example: Adding a New Feature**
+
+To add a "Password Reset" feature:
+
+1. Create folder: `Features/Auth/PasswordReset/`
+2. Add files:
+   - `PasswordReset.Command.cs`
+   - `PasswordReset.Request.cs`
+   - `PasswordReset.Response.cs`
+   - `PasswordReset.Handler.cs`
+   - `PasswordReset.Endpoint.cs`
+   - `PasswordReset.Validator.cs`
+3. Register endpoint in `EndpointExtensions.cs`
+
+**That's it.** No touching other features, no updating multiple layers.
+
+### Comparison with Clean Architecture
+
+**What I've Learned:**
+
+- **Clean Architecture**: Better for large teams with strict boundaries, complex business rules requiring heavy abstraction
+- **Vertical Slice**: Better for small-to-medium teams, rapid feature development, clear feature ownership
+
+**This project proved**: Vertical Slice Architecture is **not a compromise** - it's a legitimate, production-ready approach that reduces ceremony while maintaining testability and separation of concerns.
+
+### MediatR Pipeline
+
+The project uses **MediatR** to decouple request handling:
+
+```csharp
+// Endpoint
+var command = new Command(request.Username, request.Password);
+var response = await mediator.Send(command);
+
+// MediatR routes to Handler
+public class Handler : IRequestHandler<Command, Response>
+{
+    public async Task<Response> Handle(Command request, CancellationToken ct)
+    {
+        // Business logic here
+    }
+}
+```
+
+This provides:
+- **Testability**: Handlers are easy to unit test
+- **Pipeline Behaviors**: Cross-cutting concerns (logging, validation)
+- **Decoupling**: Endpoints don't know about implementation
+
+### Shared Infrastructure
+
+While features are independent, they share:
+
+- **Database Context**: `PortfolioDbContext`
+- **Authentication**: JWT configuration in `ServiceCollectionExtensions`
+- **Middleware**: Exception handling, CORS, token blacklist
+- **Common Contracts**: `IEndpoint`, `Result<T>`
+
+This is the **sweet spot**: Features are independent where it matters, but share infrastructure to avoid duplication.
+
+---
+
+## Frontend Migration Status
+
+The frontend is currently in a **transitional state** between static and fully dynamic:
+
+### ✅ Fully Integrated with API
+
+- **Admin Dashboard** (`/admin/*`)
+  - Login/Logout with OAuth 2.0 authentication
+  - Experiences management (CRUD operations)
+  - Real-time data from backend API
+  - Token-based authentication for protected routes
+
+### 🚧 Currently Hard-Coded (Temporary)
+
+The **public-facing portfolio** currently uses static data from `constants/` files:
+
+- **Work Experiences** (`frontend/src/constants/experiences.ts`)
+- **Technical Skills** (`frontend/src/constants/skills.ts`)
+- **Navigation** (`frontend/src/constants/navigation.ts`)
+- **Contact Options** (`frontend/src/constants/contactOptions.ts`)
+
+### 📋 Migration Roadmap
+
+Once the following API endpoints are completed, the frontend will be migrated to fetch data dynamically:
+
+1. **Skills API** → Replace `constants/skills.ts` with API calls
+2. **Projects API** → Add projects section with API integration
+3. **Blog API** → Add blog section with API integration
+4. **Profile API** (partially done) → Complete integration for About section
+5. **File Upload API** → Support images for experiences, projects, profile
+
+### Why This Approach?
+
+This phased migration approach allows me to:
+
+- **Build the admin portal first** (most important for content management)
+- **Test the API thoroughly** before migrating public pages
+- **Ensure the API design is correct** by using it in the admin dashboard
+- **Avoid breaking the public site** during development
+
+The architecture is already **API-ready** - the frontend components are built with the expectation of API data, they're just using constants as a temporary placeholder.
+
+**Example of Easy Migration:**
+
+```typescript
+// Current (hard-coded)
+import { experiences } from '@/constants/experiences';
+
+// After migration (API-driven)
+const { data: experiences } = useQuery({
+  queryKey: ['experiences'],
+  queryFn: () => api.getAllExperiences()
+});
+```
+
+---
+
+## Authentication System
+
+This project implements **OAuth 2.0 Password Grant** (RFC 6749) for authentication.
+
+### Authentication Flow
+
+```
+1. Login Request
+   POST /api/auth/token
+   Body: { username, password }
+   ↓
+   Backend validates credentials
+   ↓
+   Response: {
+     access_token: "JWT token",
+     token_type: "Bearer",
+     expires_in: 86400
+   }
+
+2. Authenticated Requests
+   Authorization: Bearer <access_token>
+   ↓
+   JWT Authentication Middleware validates token
+   ↓
+   Token Blacklist Middleware checks if token revoked
+   ↓
+   Request processed
+
+3. Logout
+   POST /api/auth/logout
+   Authorization: Bearer <access_token>
+   ↓
+   Token added to in-memory blacklist
+   ↓
+   Token cannot be used for future requests
+```
+
+### Token Introspection
+
+Check token validity:
+```bash
+POST /api/auth/token/introspect
+Authorization: Bearer <access_token>
+
+Response:
+{
+  "active": true,
+  "username": "admin",
+  "exp": 1760784270,
+  "iat": 1760697870,
+  "sub": "00000000-0000-0000-0000-000000000001"
+}
+```
+
+### Security Features
+
+- **Generic Error Messages**: Prevents user enumeration attacks
+- **Timing Attack Prevention**: Random delays on failed login attempts
+- **Secure Logging**: Logs user IDs instead of usernames
+- **Token Expiry**: 24-hour token lifetime
+- **Token Blacklisting**: In-memory cache for revoked tokens
+- **JWT Claims**: Includes `sub`, `iat`, `nbf`, `exp`, `jti`, and role claims
+
+---
+
 ## Technology Stack
 
 ### Frontend
@@ -133,6 +344,89 @@ This isn't redundancy - it's **separation of concerns at the feature level**.
 - **Authentication**: In-memory token blacklist (IMemoryCache)
 - **Logging**: Microsoft.Extensions.Logging
 - **CORS**: Configured for local development
+
+---
+
+## Outstanding Features
+
+### High Priority
+
+1. **Frontend Migration to API**
+   - [ ] Migrate public portfolio experiences to use `/api/experiences` endpoint
+   - [ ] Replace hard-coded skills with API data (once Skills API complete)
+   - [ ] Replace hard-coded projects with API data (once Projects API complete)
+   - [ ] Replace hard-coded profile data with API data
+   - [ ] Add loading states and error handling for API calls
+   - [ ] Implement data caching with TanStack React Query
+
+2. **Skills Management API**
+   - [ ] Create skills CRUD endpoints
+   - [ ] Admin UI for managing skills
+   - [ ] Skill categories/grouping
+   - [ ] Public skills display endpoint
+
+3. **Projects/Portfolio Management**
+   - [ ] Projects CRUD endpoints
+   - [ ] Image upload for project screenshots
+   - [ ] Project categories and tags
+   - [ ] Admin UI for project management
+   - [ ] Public projects listing and detail pages
+
+4. **Blog System**
+   - [ ] Blog posts CRUD endpoints
+   - [ ] Markdown support for blog content
+   - [ ] Blog categories and tags
+   - [ ] Admin UI for blog management
+   - [ ] Public blog listing and detail pages
+
+5. **File Upload System**
+   - [ ] Image upload endpoint (experiences, projects, profile)
+   - [ ] File validation (size, type)
+   - [ ] Storage strategy (local vs cloud)
+   - [ ] Image optimization/resizing
+
+### Medium Priority
+
+6. **Contact Form**
+   - [ ] Contact form submission endpoint
+   - [ ] Email notification integration
+   - [ ] Form validation and spam protection
+   - [ ] Success/error handling UI
+
+7. **SEO Optimization**
+   - [ ] Meta tags management
+   - [ ] Dynamic sitemap generation
+   - [ ] robots.txt configuration
+   - [ ] Open Graph tags for social sharing
+
+8. **Analytics**
+   - [ ] Page view tracking
+   - [ ] Admin dashboard analytics
+   - [ ] Visitor statistics
+
+### Low Priority / Future Enhancements
+
+9. **Rate Limiting**
+   - [ ] API rate limiting middleware
+   - [ ] Login attempt throttling
+   - [ ] IP-based rate limiting
+
+10. **Refresh Token Implementation**
+    - [ ] Extend authentication to support refresh tokens
+    - [ ] Persistent token storage
+    - [ ] Token rotation strategy
+
+11. **Testing**
+    - [ ] Unit tests for backend handlers
+    - [ ] Integration tests for API endpoints
+    - [ ] Frontend component tests
+    - [ ] E2E tests for critical flows
+
+12. **CI/CD Pipeline**
+    - [ ] GitHub Actions workflow
+    - [ ] Automated testing
+    - [ ] Docker image builds
+    - [ ] Deployment automation
 
 ---
 
@@ -441,128 +735,6 @@ docker-compose up -d --build
 
 ---
 
-## Frontend Migration Status
-
-The frontend is currently in a **transitional state** between static and fully dynamic:
-
-### ✅ Fully Integrated with API
-
-- **Admin Dashboard** (`/admin/*`)
-  - Login/Logout with OAuth 2.0 authentication
-  - Experiences management (CRUD operations)
-  - Real-time data from backend API
-  - Token-based authentication for protected routes
-
-### 🚧 Currently Hard-Coded (Temporary)
-
-The **public-facing portfolio** currently uses static data from `constants/` files:
-
-- **Work Experiences** (`frontend/src/constants/experiences.ts`)
-- **Technical Skills** (`frontend/src/constants/skills.ts`)
-- **Navigation** (`frontend/src/constants/navigation.ts`)
-- **Contact Options** (`frontend/src/constants/contactOptions.ts`)
-
-### 📋 Migration Roadmap
-
-Once the following API endpoints are completed, the frontend will be migrated to fetch data dynamically:
-
-1. **Skills API** → Replace `constants/skills.ts` with API calls
-2. **Projects API** → Add projects section with API integration
-3. **Blog API** → Add blog section with API integration
-4. **Profile API** (partially done) → Complete integration for About section
-5. **File Upload API** → Support images for experiences, projects, profile
-
-### Why This Approach?
-
-This phased migration approach allows me to:
-
-- **Build the admin portal first** (most important for content management)
-- **Test the API thoroughly** before migrating public pages
-- **Ensure the API design is correct** by using it in the admin dashboard
-- **Avoid breaking the public site** during development
-
-The architecture is already **API-ready** - the frontend components are built with the expectation of API data, they're just using constants as a temporary placeholder.
-
-**Example of Easy Migration:**
-
-```typescript
-// Current (hard-coded)
-import { experiences } from '@/constants/experiences';
-
-// After migration (API-driven)
-const { data: experiences } = useQuery({
-  queryKey: ['experiences'],
-  queryFn: () => api.getAllExperiences()
-});
-```
-
----
-
-## Authentication System
-
-This project implements **OAuth 2.0 Password Grant** (RFC 6749) for authentication.
-
-### Authentication Flow
-
-```
-1. Login Request
-   POST /api/auth/token
-   Body: { username, password }
-   ↓
-   Backend validates credentials
-   ↓
-   Response: {
-     access_token: "JWT token",
-     token_type: "Bearer",
-     expires_in: 86400
-   }
-
-2. Authenticated Requests
-   Authorization: Bearer <access_token>
-   ↓
-   JWT Authentication Middleware validates token
-   ↓
-   Token Blacklist Middleware checks if token revoked
-   ↓
-   Request processed
-
-3. Logout
-   POST /api/auth/logout
-   Authorization: Bearer <access_token>
-   ↓
-   Token added to in-memory blacklist
-   ↓
-   Token cannot be used for future requests
-```
-
-### Token Introspection
-
-Check token validity:
-```bash
-POST /api/auth/token/introspect
-Authorization: Bearer <access_token>
-
-Response:
-{
-  "active": true,
-  "username": "admin",
-  "exp": 1760784270,
-  "iat": 1760697870,
-  "sub": "00000000-0000-0000-0000-000000000001"
-}
-```
-
-### Security Features
-
-- **Generic Error Messages**: Prevents user enumeration attacks
-- **Timing Attack Prevention**: Random delays on failed login attempts
-- **Secure Logging**: Logs user IDs instead of usernames
-- **Token Expiry**: 24-hour token lifetime
-- **Token Blacklisting**: In-memory cache for revoked tokens
-- **JWT Claims**: Includes `sub`, `iat`, `nbf`, `exp`, `jti`, and role claims
-
----
-
 ## API Documentation
 
 ### Authentication Endpoints
@@ -722,178 +894,6 @@ docker exec -it portfolio-postgres psql -U postgres -d portfolio_db
 \d+ table_name         # Describe table structure
 SELECT * FROM "AdminUsers";
 ```
-
----
-
-## Outstanding Features
-
-### High Priority
-
-1. **Frontend Migration to API**
-   - [ ] Migrate public portfolio experiences to use `/api/experiences` endpoint
-   - [ ] Replace hard-coded skills with API data (once Skills API complete)
-   - [ ] Replace hard-coded projects with API data (once Projects API complete)
-   - [ ] Replace hard-coded profile data with API data
-   - [ ] Add loading states and error handling for API calls
-   - [ ] Implement data caching with TanStack React Query
-
-2. **Skills Management API**
-   - [ ] Create skills CRUD endpoints
-   - [ ] Admin UI for managing skills
-   - [ ] Skill categories/grouping
-   - [ ] Public skills display endpoint
-
-3. **Projects/Portfolio Management**
-   - [ ] Projects CRUD endpoints
-   - [ ] Image upload for project screenshots
-   - [ ] Project categories and tags
-   - [ ] Admin UI for project management
-   - [ ] Public projects listing and detail pages
-
-4. **Blog System**
-   - [ ] Blog posts CRUD endpoints
-   - [ ] Markdown support for blog content
-   - [ ] Blog categories and tags
-   - [ ] Admin UI for blog management
-   - [ ] Public blog listing and detail pages
-
-5. **File Upload System**
-   - [ ] Image upload endpoint (experiences, projects, profile)
-   - [ ] File validation (size, type)
-   - [ ] Storage strategy (local vs cloud)
-   - [ ] Image optimization/resizing
-
-### Medium Priority
-
-6. **Contact Form**
-   - [ ] Contact form submission endpoint
-   - [ ] Email notification integration
-   - [ ] Form validation and spam protection
-   - [ ] Success/error handling UI
-
-7. **SEO Optimization**
-   - [ ] Meta tags management
-   - [ ] Dynamic sitemap generation
-   - [ ] robots.txt configuration
-   - [ ] Open Graph tags for social sharing
-
-8. **Analytics**
-   - [ ] Page view tracking
-   - [ ] Admin dashboard analytics
-   - [ ] Visitor statistics
-
-### Low Priority / Future Enhancements
-
-9. **Rate Limiting**
-   - [ ] API rate limiting middleware
-   - [ ] Login attempt throttling
-   - [ ] IP-based rate limiting
-
-10. **Refresh Token Implementation**
-    - [ ] Extend authentication to support refresh tokens
-    - [ ] Persistent token storage
-    - [ ] Token rotation strategy
-
-11. **Testing**
-    - [ ] Unit tests for backend handlers
-    - [ ] Integration tests for API endpoints
-    - [ ] Frontend component tests
-    - [ ] E2E tests for critical flows
-
-12. **CI/CD Pipeline**
-    - [ ] GitHub Actions workflow
-    - [ ] Automated testing
-    - [ ] Docker image builds
-    - [ ] Deployment automation
-
----
-
-## Architecture Deep Dive
-
-### Vertical Slice Architecture Explained
-
-Each feature is a **vertical slice** through all layers of the application:
-
-```
-HTTP Request
-    ↓
-Endpoint (Login.Endpoint.cs)
-    ↓
-Validation (Login.Validator.cs)
-    ↓
-MediatR Pipeline
-    ↓
-Handler (Login.Handler.cs)
-    ├─ Database Access (EF Core)
-    ├─ Business Logic
-    └─ External Services
-    ↓
-Response (Login.Response.cs)
-    ↓
-HTTP Response
-```
-
-### Benefits in Practice
-
-**Example: Adding a New Feature**
-
-To add a "Password Reset" feature:
-
-1. Create folder: `Features/Auth/PasswordReset/`
-2. Add files:
-   - `PasswordReset.Command.cs`
-   - `PasswordReset.Request.cs`
-   - `PasswordReset.Response.cs`
-   - `PasswordReset.Handler.cs`
-   - `PasswordReset.Endpoint.cs`
-   - `PasswordReset.Validator.cs`
-3. Register endpoint in `EndpointExtensions.cs`
-
-**That's it.** No touching other features, no updating multiple layers.
-
-### Comparison with Clean Architecture
-
-**What I've Learned:**
-
-- **Clean Architecture**: Better for large teams with strict boundaries, complex business rules requiring heavy abstraction
-- **Vertical Slice**: Better for small-to-medium teams, rapid feature development, clear feature ownership
-
-**This project proved**: Vertical Slice Architecture is **not a compromise** - it's a legitimate, production-ready approach that reduces ceremony while maintaining testability and separation of concerns.
-
-### MediatR Pipeline
-
-The project uses **MediatR** to decouple request handling:
-
-```csharp
-// Endpoint
-var command = new Command(request.Username, request.Password);
-var response = await mediator.Send(command);
-
-// MediatR routes to Handler
-public class Handler : IRequestHandler<Command, Response>
-{
-    public async Task<Response> Handle(Command request, CancellationToken ct)
-    {
-        // Business logic here
-    }
-}
-```
-
-This provides:
-- **Testability**: Handlers are easy to unit test
-- **Pipeline Behaviors**: Cross-cutting concerns (logging, validation)
-- **Decoupling**: Endpoints don't know about implementation
-
-### Shared Infrastructure
-
-While features are independent, they share:
-
-- **Database Context**: `PortfolioDbContext`
-- **Authentication**: JWT configuration in `ServiceCollectionExtensions`
-- **Middleware**: Exception handling, CORS, token blacklist
-- **Common Contracts**: `IEndpoint`, `Result<T>`
-
-This is the **sweet spot**: Features are independent where it matters, but share infrastructure to avoid duplication.
 
 ---
 
