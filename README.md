@@ -17,9 +17,50 @@ This project serves as my **living CV** - a dynamic portfolio website that I can
 
 **Migration Plan**: Once all remaining API endpoints (Skills, Projects, Blog) are completed, the public-facing portfolio will be migrated to fetch data from the API, making the entire site dynamically updatable through the admin portal.
 
+---
+
+## Screenshots
+
+### Portfolio Website
+
+#### Hero Section
+![Hero Section](docs/screenshots/hero-section.png)
+
+#### About Me
+![About Section](docs/screenshots/about-section.png)
+
+#### Work Experience
+![Experience Section](docs/screenshots/experience-section.png)
+
+#### Technical Skills
+![Skills Section](docs/screenshots/skills-section.png)
+
+#### Contact
+![Contact Section](docs/screenshots/contact-section.png)
+
+### Admin Dashboard
+
+#### Admin Login
+![Admin Login](docs/screenshots/admin-login.png)
+
+#### Dashboard Overview
+![Admin Dashboard](docs/screenshots/admin-dashboard.png)
+
+#### Experiences Management - List View
+![Admin Experiences List](docs/screenshots/admin-experiences-list.png)
+
+#### Experiences Management - Form
+![Admin Experience Form](docs/screenshots/admin-experience-form.png)
+
+#### Admin Navigation
+![Admin Navigation](docs/screenshots/admin-nav.png)
+
+---
+
 ## Table of Contents
 
 - [Project Purpose](#project-purpose)
+- [Screenshots](#screenshots)
 - [Architecture Philosophy](#architecture-philosophy)
 - [Architecture Deep Dive](#architecture-deep-dive)
 - [Frontend Migration Status](#frontend-migration-status)
